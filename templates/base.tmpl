@@ -1,0 +1,43 @@
+<dashboard>
+  <!-- A title for the dashboard -->
+  <label>SIGMA Rules Dashboard</label>
+  
+  <!-- Provide a description -->
+  <description>SIGMA Rules converted to splunk App - dump {{ now }}</description>
+
+  {% for searchcase in searchcase_list %}
+  <!-- Place panels within rows -->
+  <row>
+
+    <!-- This basic dashboard has only a single panel -->
+    <panel>
+    
+        <html>  {{ searchcase.description }} <br>
+                {{ searchcase.references }} <br>
+                {{ searchcase.detection }}
+        </html>
+
+      <table>
+        <title>{{ searchcase.title }}</title>
+
+        <!-- A search powers the panel -->
+        <search>
+          <query>
+          {{ searchcase.rule }}
+          </query>
+          <!-- Specify a time range for the search -->
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+
+        <!-- Use options to further define how to display result data -->
+        <option name="wrap">true</option>
+        <option name="rowNumbers">true</option>
+      </table>
+
+    </panel>
+  </row>
+
+  {% endfor %}
+
+</dashboard>
