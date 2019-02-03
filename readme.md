@@ -1,16 +1,21 @@
 # SIGMA Rules Splunk Dashboard #
 Generate Splunk search app from SIGMA rules repository wrapping sigmac converter
 
+Features:
+- Allows easy update - New dashboards generated generated on SIGMA repo update 
+- Use Jinga2 templating engine to generate template source code 
+- Create Field name statistics for easier configuration
+- All arguments parametrized
 
 # Requirements #
 
-- clone/download this repository
+- Clone/download this repository
     
-    `git clone xxx`
+    `git clone git@github.com:petermat/sigma-splunk-dashboard.git`
     
-    `cd xxx`
+    `cd sigma-splunk-dashboard`
 
-- clone Sigma repository [SIGMA rules](https://github.com/Neo23x0/sigma)
+- Clone Sigma repository [SIGMA rules](https://github.com/Neo23x0/sigma)
 
     `git clone https://github.com/Neo23x0/sigma.git`
 
@@ -22,7 +27,7 @@ Generate Splunk search app from SIGMA rules repository wrapping sigmac converter
 
 
 
-- install dependencies from requirements.txt
+- Install dependencies from requirements.txt
 
     `pip install -f requirements.txt`
 
