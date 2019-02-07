@@ -17,11 +17,13 @@ logsources:
   windows-sysmon:
     product: windows
     service: sysmon
+    index: sysmon*
     conditions:
-      source: 'WinEventLog:Microsoft-Windows-Sysmon/Operational'
+      source: 'WinEventLog:WEC-Forwarded-Sysmon-*'
   windows-powershell:
     product: windows
     service: powershell
+    index: sysmon*
     conditions:
       source: 'WinEventLog:Microsoft-Windows-PowerShell/Operational'
   windows-classicpowershell:

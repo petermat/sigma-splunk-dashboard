@@ -8,12 +8,17 @@ SIGMA rule repository convertor to Splunk Dashboard
 Usage:
 
     Review rules
+         $ python create_dashboard.py -di sigma/rules/windows/sysmon --config splunk-windows-all.yml --info
 
-        python create_splunk_dashboard.py -di sigma/rules/windows/sysmon --config splunk-windows-all.yml --info
+    Run script with all rules in folder
+        $ python create_dashboard.py -di sigma/rules/windows/sysmon --config splunk-windows-all.yml
 
-    Run script
-
-        python create_splunk_dashboard.py -di sigma/rules/windows/sysmon --config splunk-windows-all.yml
+    Run script withour blacklisted fieldnames
+        $ python create_dashboard.py -di sigma/rules/windows/sysmon \
+            --config splunk-windows-all.yml \
+            --blacklist 'CallTrace, DestinationHostname,DestinationIp,DestinationIsIpv6,DestinationPort,\
+            Details,GrantedAccess,ImageLoaded,Imphash,PipeName,ProcessCommandLine,SourceImage,StartModule,\
+            TargetFilename,TargetImage,TargetObject,TargetProcessAddress'
 
 '''
 
@@ -27,18 +32,6 @@ from jinja2 import Template
 
 
 def is_valid_file(parser, arg):
-    """
-    Check if arg is a valid file that already exists on the file system.
-
-    Parameters
-    ----------
-    parser : argparse object
-    arg : str
-
-    Returns
-    -------
-    arg
-    """
     arg = os.path.abspath(arg)
     if not os.path.exists(arg):
         parser.error("The file %s does not exist!" % arg)
@@ -52,10 +45,14 @@ def dir_path(string):
         print("Error in '{}}': Sigma directory not nalid. Dependency 'git clone sigma' missing?".format(string))
         #raise NotADirectoryError(string)
 
+
 def get_list_yml_filepaths(dir_name):
-
-
     return [filename for filename in glob.iglob(dir_name + '**/*.yml', recursive=True)]
+
+
+def escape_splunk_html(dirty_string):
+    if dirty_string:
+        return str(dirty_string).replace("&","&amp;").replace("'","&apos;").replace("<","&lt;").replace(">","&gt;")
 
 
 def get_fieldnames_info(rule_dir, config_file=None):
@@ -83,14 +80,30 @@ def get_fieldnames_info(rule_dir, config_file=None):
                     if field_name in line:
                         print('\t> Remapped: {}\n'.format(line))
 
+def enhance_rule_table(rulestring):
+    # define important field names to add to table
+    interesting_fields = ['User','ComputerName','ParentCommandLine', 'CommandLine','ParentImage','Image','CurrentDirectory']
+    notintersting_fields = ['Message','_raw']
 
-def get_converted_rules(rule_dir, out_dir, config_file=None):
+    if len(rulestring.split("| table ")) > 1:
+        rulestring = rulestring.split("| table ")[0] + '| dedup ' + ','.join(interesting_fields) + '| table ' + ','.join(interesting_fields)
+    else:
+        rulestring = rulestring + '| dedup ' + ','.join(interesting_fields) + '| table ' + ','.join(interesting_fields)
+    return rulestring
+
+
+def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
     print("="*80)
-    print("\nStart processing {} rule files in '{}' directory:\n".format(len([glob.iglob(rule_dir + '**/*.yml', recursive=True)]),rule_dir))
+    print("\nStart processing {} rule files in '{}' directory:\n".format(len(list(glob.iglob(rule_dir + '**/*.yml', recursive=True))),rule_dir))
     print("="*80,'\n')
 
     output_list = []
+    printout_processed =[]
+    printout_skipped = []
     for rulefile in glob.iglob(rule_dir + '**/*.yml', recursive=True):
+        #if blacklist:
+        #    args = shlex.split("python create_dashboard.py --config {} --info {}".format(config_file, rulefile))
+
         with open(rulefile) as myfile:
             if config_file:
                 args = shlex.split("sigma/tools/sigmac -t splunk -c {} {}".format(config_file,rulefile))
@@ -102,9 +115,21 @@ def get_converted_rules(rule_dir, out_dir, config_file=None):
                                  # shell=True
                                  ).stdout.decode('utf-8'))
 
+            if blacklist:
+                matched_blackwords = []
+                for black_word in blacklist:
+                    if " "+black_word+"=" in converted_rule:
+                        matched_blackwords.append(black_word)
+
+                if matched_blackwords:
+                    print("SKIP rule {} matched these blacklisted field names: {}".format(rulefile,matched_blackwords ))
+                    printout_skipped.append("{} because contains {}".format(rulefile,matched_blackwords))
+                    continue
 
             sigma_obj_all = yaml.load_all(myfile)
             stable_list = list(sigma_obj_all)
+
+            # For cases when there are multiple UCs in one files
             if len(stable_list) > 1:
                 counter=0
                 for sigma_obj in stable_list:
@@ -122,7 +147,11 @@ def get_converted_rules(rule_dir, out_dir, config_file=None):
                                 sigma_obj[k].update(v)
 
                     if counter >0:
-                        sigma_obj['rule'] = converted_rule.split('\n')[counter-1]
+                        sigma_obj['rule'] = enhance_rule_table(converted_rule.split('\n')[counter-1])
+                        sigma_obj['description_esc'] = escape_splunk_html(sigma_obj.get('description'))
+                        sigma_obj['references_esc'] = escape_splunk_html(sigma_obj.get('references'))
+                        sigma_obj['detection_esc'] = escape_splunk_html(sigma_obj.get('detection'))
+                        """ # debug printout
                         for k,v in sigma_obj.items():
                             print("k:",k,"\t\t","v:",v)
                             #print(sigma_obj.get('title'))
@@ -131,11 +160,19 @@ def get_converted_rules(rule_dir, out_dir, config_file=None):
                             #print(converted_rule)
                             #print(sigma_obj.items())
                         print("-"*45)
+                        """
                         output_list.append(sigma_obj)
+                        printout_processed.append(sigma_obj['title'])
                     counter +=1
+
+            # Only one rule per file
             else:
                 for counter, sigma_obj in enumerate(stable_list):
-                    sigma_obj['rule'] = converted_rule
+                    sigma_obj['rule'] = enhance_rule_table(converted_rule)
+                    sigma_obj['description_esc'] = escape_splunk_html(sigma_obj.get('description'))
+                    sigma_obj['references_esc'] = escape_splunk_html(sigma_obj.get('references'))
+                    sigma_obj['detection_esc'] = escape_splunk_html(sigma_obj.get('detection'))
+                    """ # debug printout
                     for k,v in sigma_obj.items():
                         print("k:",k,"\t\t","v:",v)
                         #print(sigma_obj.get('title'))
@@ -144,8 +181,21 @@ def get_converted_rules(rule_dir, out_dir, config_file=None):
                         #print(converted_rule)
                         #print(sigma_obj.items())
                     print("-"*45)
+                    """
                     output_list.append(sigma_obj)
+                    printout_processed.append(sigma_obj['title'])
+
+    #print summary
+    print("\n","="*60)
+    print("Skipped rules ({}):".format(len(printout_skipped)))
+    for skipped_r in printout_skipped:
+        print("\t"+skipped_r)
+    print("\n", "-"*60)
+    print("Processed rules ({}):".format(len(printout_processed)))
+    for processed_r in printout_processed:
+        print("\t"+processed_r)
     return output_list
+
 
 def get_parser():
     """Get parser object for script xy.py."""
@@ -179,6 +229,13 @@ def get_parser():
                         help="read the config file",
                         metavar="FILE")
 
+    parser.add_argument("-b", "--blacklist",
+                        dest="blacklist",
+                        default=None,
+                        type=str,
+                        help="list of rule names to blacklist",
+                        metavar="FILE")
+
     parser.add_argument("-i", "--info",
                         action="store_true",
                         dest="info",
@@ -199,11 +256,19 @@ if __name__ == "__main__":
     if args.info:
         get_fieldnames_info(args.sigma_rule_directory, args.config)
 
-    searchcase_list = get_converted_rules(args.sigma_rule_directory,args.output_dir,  args.config)
+    else:
+        black_list = None
+        if args.blacklist:
+            black_list = [str(item.strip()) for item in args.blacklist.split(',')]
 
-    with open('templates/base.tmpl') as file_:
-        template = Template(file_.read())
-    rendr = template.render(searchcase_list=searchcase_list, now=datetime.datetime.today())
 
-    with open(os.path.join(args.output_dir,"dashboard_code.txt"), "w") as myfile:
-        myfile.write(rendr)
+        searchcase_list = get_converted_rules(args.sigma_rule_directory,args.output_dir, black_list, args.config)
+
+        with open('templates/base.tmpl') as file_:
+            template = Template(file_.read())
+        rendr = template.render(searchcase_list=searchcase_list, now=datetime.datetime.today())
+
+        with open(os.path.join(args.output_dir,"dashboard_code.txt"), "w") as myfile:
+            myfile.write(rendr)
+
+
