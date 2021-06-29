@@ -3,9 +3,11 @@
 if [ ! -d venv ]; then
 	echo "Venv not found, creating..."
 	python3 -m venv venv
-	source venv/bin/activate
+	. venv/bin/activate
 	pip install -r requirements.txt
 fi
+
+. venv/bin/activate
 
 if [ ! -d sigma ]; then
 	echo "Sigma repo not found, cloning..." 
@@ -14,14 +16,14 @@ fi
 
 echo "Updating sigma rules..."
 cd sigma
-git pull
+git pull --no-rebase
 cd ..
 
 mkdir -p dashboards/windows
 
 for d in $(ls sigma/rules/); do
 	[ "$d" = "windows" ] && continue
-	python create_ashboard.py -di "sigma/rules/$d" --config splunk-windows-all.yml
+	python create_dashboard.py -di "sigma/rules/$d" --config splunk-windows-all.yml
 	mv dashboard_code.txt "dashboards/$d-dashboard.xml"
 done
 
