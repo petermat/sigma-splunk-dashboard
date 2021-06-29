@@ -110,10 +110,17 @@ def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
             else:
                 args = shlex.split("sigma/tools/sigmac -t splunk {}".format(rulefile))
 
-            converted_rule =  (subprocess.run(args,
-                                 stdout=PIPE, stderr=PIPE,
-                                 # shell=True
-                                 ).stdout.decode('utf-8'))
+            converter = subprocess.run(args, stdout=PIPE, stderr=PIPE)
+            if converter.returncode != 0 and not converter.stdout:
+                print("Unable to convert rule file:", rulefile)
+                print("output:")
+                print("-"*80)
+                print(converter.stderr.decode('utf-8').strip())
+                print("-"*80)
+                print()
+                printout_skipped.append(f"{rulefile} because sigmac was unable to convert the file, error code {converter.returncode}")
+                continue
+            converted_rule = converter.stdout.decode('utf-8').replace('&', '&amp;')
 
             if blacklist:
                 matched_blackwords = []
@@ -216,11 +223,11 @@ def get_parser():
                         metavar="DIR")
 
     parser.add_argument( "-do", "--directory_out",
-    					dest="output_dir",
-    					default=os.path.dirname(os.path.realpath(__file__)),
+                        dest="output_dir",
+                        default=os.path.dirname(os.path.realpath(__file__)),
                         type=dir_path,
-					    help='Directory where the output files should be saved.',
-					    metavar='DIR')
+                        help='Directory where the output files should be saved.',
+                        metavar='DIR')
     
     parser.add_argument("-c", "--config",
                         dest="config",
