@@ -32,4 +32,4 @@ for d in $(ls sigma/rules/windows/); do
 	mv dashboard_code.txt "dashboards/windows/$d-dashboard.xml"
 done
 
-echo "Generated $(find dashboards -name "*.xlm" | wc -l) .xml files under ./dashboards/"
+echo "Generated $(find dashboards -name "*.xml" | wc -l) .xml files under ./dashboards/"
