@@ -11,7 +11,7 @@
 
     <!-- This basic dashboard has only a single panel -->
     <panel>
-        <title>{{ searchcase.title }}</title>
+        <title>{{ searchcase.title.replace('&', '&amp;') }}</title>
         <html> <strong>Description:</strong> {{ searchcase.description_esc }} <br/>
                <strong>References:</strong> {{ searchcase.references_esc }} <br/>
                <strong>Sigma rule:</strong> {{ searchcase.detection_esc }}

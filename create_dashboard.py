@@ -49,10 +49,24 @@ def dir_path(string):
 def get_list_yml_filepaths(dir_name):
     return [filename for filename in glob.iglob(dir_name + '**/*.yml', recursive=True)]
 
+def escape_splunk_html_splunk_query(query):
+    for match in re.finditer('".*?[^\\\\]"', query):
+        query = query[:match.start() + 1] + escape_splunk_html(query[match.start() + 1:match.end() - 1]) + query[match.end() - 1:]
+    return query
 
 def escape_splunk_html(dirty_string):
+    bad = {
+        "&": "&amp;",
+        "'": "&apos;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "$": "$$"
+    }
     if dirty_string:
-        return str(dirty_string).replace("&","&amp;").replace("'","&apos;").replace("<","&lt;").replace(">","&gt;")
+        for k,v in bad.items():
+            dirty_string = str(dirty_string).replace(k, v)
+    return dirty_string
+        # return str(dirty_string).replace("&","&amp;").replace("'","&apos;").replace("<","&lt;").replace(">","&gt;")
 
 
 def get_fieldnames_info(rule_dir, config_file=None):
@@ -110,10 +124,18 @@ def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
             else:
                 args = shlex.split("sigma/tools/sigmac -t splunk {}".format(rulefile))
 
-            converted_rule =  (subprocess.run(args,
-                                 stdout=PIPE, stderr=PIPE,
-                                 # shell=True
-                                 ).stdout.decode('utf-8'))
+            converter = subprocess.run(args, stdout=PIPE, stderr=PIPE)
+            if converter.returncode != 0 and not converter.stdout:
+                print("Unable to convert rule file:", rulefile)
+                print("output:")
+                print("-"*80)
+                print(converter.stderr.decode('utf-8').strip())
+                print("-"*80)
+                print()
+                printout_skipped.append(f"{rulefile} because sigmac was unable to convert the file, error code {converter.returncode}")
+                continue
+            converted_rule = converter.stdout.decode('utf-8').strip()
+            converted_rule = escape_splunk_html_splunk_query(converted_rule)
 
             if blacklist:
                 matched_blackwords = []
@@ -147,7 +169,9 @@ def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
                                 sigma_obj[k].update(v)
 
                     if counter >0:
-                        sigma_obj['rule'] = enhance_rule_table(converted_rule.split('\n')[counter-1])
+                        sigma_obj['pure_rule'] = converted_rule.split('\n')[counter-1]
+                        sigma_obj['rule'] = enhance_rule_table(sigma_obj['pure_rule'])
+                        sigma_obj['title'] = escape_splunk_html(sigma_obj.get('title'))
                         sigma_obj['description_esc'] = escape_splunk_html(sigma_obj.get('description'))
                         sigma_obj['references_esc'] = escape_splunk_html(sigma_obj.get('references'))
                         sigma_obj['detection_esc'] = escape_splunk_html(sigma_obj.get('detection'))
@@ -168,7 +192,9 @@ def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
             # Only one rule per file
             else:
                 for counter, sigma_obj in enumerate(stable_list):
-                    sigma_obj['rule'] = enhance_rule_table(converted_rule)
+                    sigma_obj['pure_rule'] = converted_rule
+                    sigma_obj['rule'] = enhance_rule_table(sigma_obj['pure_rule'])
+                    sigma_obj['title'] = escape_splunk_html(sigma_obj.get('title'))
                     sigma_obj['description_esc'] = escape_splunk_html(sigma_obj.get('description'))
                     sigma_obj['references_esc'] = escape_splunk_html(sigma_obj.get('references'))
                     sigma_obj['detection_esc'] = escape_splunk_html(sigma_obj.get('detection'))
@@ -216,11 +242,11 @@ def get_parser():
                         metavar="DIR")
 
     parser.add_argument( "-do", "--directory_out",
-    					dest="output_dir",
-    					default=os.path.dirname(os.path.realpath(__file__)),
+                        dest="output_dir",
+                        default=os.path.dirname(os.path.realpath(__file__)),
                         type=dir_path,
-					    help='Directory where the output files should be saved.',
-					    metavar='DIR')
+                        help='Directory where the output files should be saved.',
+                        metavar='DIR')
     
     parser.add_argument("-c", "--config",
                         dest="config",
