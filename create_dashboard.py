@@ -24,6 +24,7 @@ Usage:
 
 import os, sys, re
 import glob
+from pathlib import Path
 import subprocess, shlex
 from subprocess import PIPE
 import datetime
@@ -106,34 +107,56 @@ def enhance_rule_table(rulestring):
     return rulestring
 
 
-def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
-    print("="*80)
-    print("\nStart processing {} rule files in '{}' directory:\n".format(len(list(glob.iglob(rule_dir + '**/*.yml', recursive=True))),rule_dir))
-    print("="*80,'\n')
-
+def get_converted_rules(rule_dir, out_dir , prefix_list=[], blacklist=None, config_file=None):
     output_list = []
     printout_processed =[]
     printout_skipped = []
-    for rulefile in glob.iglob(rule_dir + '**/*.yml', recursive=True):
+
+    rule_files = []
+    if prefix_list:
+        for prefix_str in prefix_list:
+            rule_files += list(Path(os.path.join(rule_dir)).rglob("{}_*.yml".format(prefix_str)))
+    else:
+        rule_files += list(Path(os.path.join(rule_dir)).rglob("*.yml"))
+
+
+
+    regexban = re.compile('.*deprecated.*')  # remove nonrelevant
+    filtered = [str(i) for i in rule_files if not regexban.match(str(i))]
+
+    print("="*80)
+    print("\nStart processing {} rule files in directory: {}".format(len(filtered), rule_dir))
+    if prefix_list: print("! Including only fies with these prefixes: {}".format(', '.join(prefix_list)))
+    print("="*80, '\n')
+
+    #for rulefile in glob.iglob(rule_dir + '**/*.yml', recursive=True):
+    for counter, rulefile in enumerate(filtered):
         #if blacklist:
         #    args = shlex.split("python create_dashboard.py --config {} --info {}".format(config_file, rulefile))
 
         with open(rulefile) as myfile:
             if config_file:
-                args = shlex.split("sigma/tools/sigmac -t splunk -c {} {}".format(config_file,rulefile))
+                if not isinstance(config_file, list):
+                    config_file = [config_file,]
+                args = shlex.split("sigma/tools/sigmac -t splunk {} {}".format(''.join([' -c '+x for x in config_file]),
+                                                                                  rulefile))
             else:
                 args = shlex.split("sigma/tools/sigmac -t splunk {}".format(rulefile))
 
             converter = subprocess.run(args, stdout=PIPE, stderr=PIPE)
+            print("-" * 80)
             if converter.returncode != 0 and not converter.stdout:
+
                 print("Unable to convert rule file:", rulefile)
                 print("output:")
-                print("-"*80)
                 print(converter.stderr.decode('utf-8').strip())
                 print("-"*80)
                 print()
                 printout_skipped.append(f"{rulefile} because sigmac was unable to convert the file, error code {converter.returncode}")
                 continue
+            else:
+                print("File {}/{} loaded: {}".format(counter+1,len(rule_files),rulefile))
+
             converted_rule = converter.stdout.decode('utf-8').strip()
             converted_rule = escape_splunk_html_splunk_query(converted_rule)
 
@@ -148,7 +171,7 @@ def get_converted_rules(rule_dir, out_dir, blacklist=None ,config_file=None):
                     printout_skipped.append("{} because contains {}".format(rulefile,matched_blackwords))
                     continue
 
-            sigma_obj_all = yaml.load_all(myfile)
+            sigma_obj_all = yaml.load_all(myfile, Loader=yaml.FullLoader)
             stable_list = list(sigma_obj_all)
 
             # For cases when there are multiple UCs in one files
@@ -236,7 +259,7 @@ def get_parser():
     
     parser.add_argument("-di", "--directory_in",
                         dest="sigma_rule_directory",
-                        default=os.path.join("sigma","rules","windows","sysmon"),
+                        default=os.path.join("sigma", "rules", "windows"),
                         type=dir_path,
                         help="reads sigma signatures per directory",
                         metavar="DIR")
@@ -247,7 +270,13 @@ def get_parser():
                         type=dir_path,
                         help='Directory where the output files should be saved.',
                         metavar='DIR')
-    
+
+    parser.add_argument( "-pf", "--prefix_list",
+                        dest="prefix_list",
+                        nargs='+',
+                        default=[],
+                        help='List of file rule prefixes to process')
+
     parser.add_argument("-c", "--config",
                         dest="config",
                         default=None,
@@ -255,11 +284,11 @@ def get_parser():
                         help="read the config file",
                         metavar="FILE")
 
-    parser.add_argument("-b", "--blacklist",
-                        dest="blacklist",
+    parser.add_argument("-b", "--denylist",
+                        dest="denylist",
                         default=None,
                         type=str,
-                        help="list of rule names to blacklist",
+                        help="list of rule names to denylist",
                         metavar="FILE")
 
     parser.add_argument("-i", "--info",
@@ -284,11 +313,11 @@ if __name__ == "__main__":
 
     else:
         black_list = None
-        if args.blacklist:
-            black_list = [str(item.strip()) for item in args.blacklist.split(',')]
+        if args.denylist:
+            deny_list = [str(item.strip()) for item in args.denylist.split(',')]
 
 
-        searchcase_list = get_converted_rules(args.sigma_rule_directory,args.output_dir, black_list, args.config)
+        searchcase_list = get_converted_rules(args.sigma_rule_directory,args.output_dir, args.prefix_list, black_list, args.config)
 
         with open('templates/base.tmpl') as file_:
             template = Template(file_.read())
